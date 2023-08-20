@@ -148,7 +148,10 @@ fn spawn_flies(
                     ..default()
                 },
                 Velocity { x: 330.0, y: 330.0 },
-                Speed { x: 666.0, y: 600.0 },
+                Speed {
+                    x: rng.gen_range(480.0..700.0),
+                    y: rng.gen_range(420.0..690.0),
+                },
                 AIControlled {
                     update_timer: Timer::new(
                         Duration::from_secs_f32(rng.gen_range(0.25..1.8)),
