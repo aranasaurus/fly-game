@@ -16,7 +16,9 @@ struct Speed {
 }
 
 #[derive(Component)]
-struct PlayerControlled;
+struct PlayerControlled {
+    bounce_timer: Timer,
+}
 
 #[derive(Component)]
 struct AIControlled {
@@ -79,12 +81,18 @@ fn setup(
                 .add(shape::RegularPolygon::new(10.0, 3).into())
                 .into(),
             material: materials.add(ColorMaterial::from(Color::DARK_GRAY)),
-            transform: Transform::from_translation(Vec3::new(150., 0., 0.)),
+            transform: Transform::from_translation(Vec3::new(
+                rng.gen_range(-300.0..300.0),
+                rng.gen_range(-300.0..300.0),
+                0.,
+            )),
             ..default()
         },
         Velocity { x: 0.0, y: 0.0 },
         Speed { x: 666.0, y: 600.0 },
-        PlayerControlled,
+        PlayerControlled {
+            bounce_timer: Timer::from_seconds(0.1, TimerMode::Once),
+        },
     ));
     for _ in 0..25 {
         let mut x: f32 = rng.gen_range(-1000.0..1000.0);
@@ -156,9 +164,10 @@ fn ai_movement(
 
 fn keyboard_movement(
     input: Res<Input<KeyCode>>,
-    mut query: Query<(&mut Velocity, &Speed), With<PlayerControlled>>,
+    time: Res<Time>,
+    mut query: Query<(&mut Velocity, &Speed, &mut PlayerControlled)>,
 ) {
-    for (mut velocity, speed) in query.iter_mut() {
+    for (mut velocity, speed, mut player) in query.iter_mut() {
         for key in input.get_just_pressed() {
             match key {
                 KeyCode::Up => velocity.y = speed.y,
@@ -166,6 +175,22 @@ fn keyboard_movement(
                 KeyCode::Right => velocity.x = speed.x,
                 KeyCode::Left => velocity.x = -speed.x,
                 _ => continue,
+            }
+        }
+
+        // when players hit the screen edge they bounce off, but if they're still holding the
+        // button down after the bounce_timer finishes, we need to reset the velocity according to
+        // the held down button.
+        player.bounce_timer.tick(time.delta());
+        if player.bounce_timer.just_finished() {
+            for key in input.get_pressed() {
+                match key {
+                    KeyCode::Up => velocity.y = speed.y,
+                    KeyCode::Down => velocity.y = -speed.y,
+                    KeyCode::Right => velocity.x = speed.x,
+                    KeyCode::Left => velocity.x = -speed.x,
+                    _ => continue,
+                }
             }
         }
 
@@ -190,11 +215,12 @@ fn keyboard_movement(
 fn apply_moves(
     time: Res<Time>,
     window: Query<&Window>,
-    mut query: Query<(&mut Transform, &mut Velocity)>,
+    mut query: Query<(&mut Transform, &mut Velocity, Entity)>,
+    mut players: Query<&mut PlayerControlled>,
 ) {
     let win = window.single();
     let screen = Screen::from(win);
-    for (mut transform, mut velocity) in query.iter_mut() {
+    for (mut transform, mut velocity, entity) in query.iter_mut() {
         let mut position = &mut transform.translation;
 
         let was_onscreen = screen.contains(&position);
@@ -208,22 +234,35 @@ fn apply_moves(
             continue;
         }
 
+        // bounce off the screen edges
+        let mut bounced = false;
         position.x = position.x.clamp(screen.min_x, screen.max_x);
         if position.x == screen.min_x {
             position.x = screen.min_x + 1.0;
-            velocity.x = -velocity.x
+            velocity.x = -velocity.x;
+            bounced = true;
         } else if position.x == screen.max_x {
             position.x = screen.max_x - 1.0;
-            velocity.x = -velocity.x
+            velocity.x = -velocity.x;
+            bounced = true;
         }
 
         position.y = position.y.clamp(screen.min_y, screen.max_y);
         if position.y == screen.min_y {
             position.y = screen.min_y + 1.0;
-            velocity.y = -velocity.y
+            velocity.y = -velocity.y;
+            bounced = true;
         } else if position.y == screen.max_y {
             position.y = screen.max_y - 1.0;
-            velocity.y = -velocity.y
+            velocity.y = -velocity.y;
+            bounced = true;
+        }
+
+        if bounced {
+            if let Ok(mut player) = players.get_mut(entity) {
+                player.bounce_timer.reset();
+                player.bounce_timer.unpause();
+            }
         }
     }
 }
