@@ -3,6 +3,8 @@ use std::time::Duration;
 
 use bevy::{prelude::*, sprite::MaterialMesh2dBundle};
 
+const MAX_FLIES: usize = 42;
+
 #[derive(Component, Debug)]
 struct Velocity {
     x: f32,
@@ -25,6 +27,21 @@ struct AIControlled {
     update_timer: Timer,
     update_freq_min: f32,
     update_freq_max: f32,
+}
+
+#[derive(Resource)]
+struct Spawner(Timer);
+
+impl Spawner {
+    fn new() -> Self {
+        Spawner(Timer::from_seconds(3.0, TimerMode::Repeating))
+    }
+}
+
+impl Default for Spawner {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -55,11 +72,13 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .insert_resource(ClearColor(Color::ALICE_BLUE))
+        .init_resource::<Spawner>()
         .add_systems(Startup, setup)
         .add_systems(
             Update,
             (keyboard_movement, ai_movement, apply_moves).chain(),
         )
+        .add_systems(Update, spawn_flies)
         .run();
 }
 
@@ -67,13 +86,10 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    window: Query<&Window>,
 ) {
     let mut rng = rand::thread_rng();
-    let screen = Screen::from(window.single());
     commands.spawn(Camera2dBundle::default());
 
-    // Circle
     commands.spawn((
         MaterialMesh2dBundle {
             // mesh: meshes.add(shape::Circle::new(10.).into()).into(),
@@ -94,33 +110,55 @@ fn setup(
             bounce_timer: Timer::from_seconds(0.1, TimerMode::Once),
         },
     ));
-    for _ in 0..25 {
-        let mut x: f32 = rng.gen_range(-1000.0..1000.0);
-        let mut y: f32 = rng.gen_range(-1000.0..1000.0);
-        while screen.contains(&Vec3::from([x, y, 0.0])) {
-            x = rng.gen_range(-1000.0..1000.0);
-            y = rng.gen_range(-1000.0..1000.0);
+}
+
+fn spawn_flies(
+    time: Res<Time>,
+    window: Query<&Window>,
+    ai_query: Query<&AIControlled>,
+    mut spawner: ResMut<Spawner>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut commands: Commands,
+) {
+    let mut rng = rand::thread_rng();
+    let screen = Screen::from(window.single());
+
+    spawner.0.tick(time.delta());
+
+    if ai_query.iter().count() >= MAX_FLIES {
+        return;
+    }
+
+    if spawner.0.just_finished() {
+        for _ in 0..3 {
+            let mut x: f32 = rng.gen_range(-1500.0..1500.0);
+            let mut y: f32 = rng.gen_range(-1500.0..1500.0);
+            while screen.contains(&Vec3::from([x, y, 0.0])) {
+                x = rng.gen_range(-1500.0..1500.0);
+                y = rng.gen_range(-1500.0..1500.0);
+            }
+            commands.spawn((
+                MaterialMesh2dBundle {
+                    mesh: meshes
+                        .add(shape::RegularPolygon::new(10.0, 3).into())
+                        .into(),
+                    material: materials.add(ColorMaterial::from(Color::DARK_GRAY)),
+                    transform: Transform::from_translation(Vec3::from([x, y, 0.])),
+                    ..default()
+                },
+                Velocity { x: 330.0, y: 330.0 },
+                Speed { x: 666.0, y: 600.0 },
+                AIControlled {
+                    update_timer: Timer::new(
+                        Duration::from_secs_f32(rng.gen_range(0.25..1.8)),
+                        TimerMode::Once,
+                    ),
+                    update_freq_min: 0.25,
+                    update_freq_max: 1.8,
+                },
+            ));
         }
-        commands.spawn((
-            MaterialMesh2dBundle {
-                mesh: meshes
-                    .add(shape::RegularPolygon::new(10.0, 3).into())
-                    .into(),
-                material: materials.add(ColorMaterial::from(Color::DARK_GRAY)),
-                transform: Transform::from_translation(Vec3::from([x, y, 0.])),
-                ..default()
-            },
-            Velocity { x: 330.0, y: 330.0 },
-            Speed { x: 666.0, y: 600.0 },
-            AIControlled {
-                update_timer: Timer::new(
-                    Duration::from_secs_f32(rng.gen_range(0.25..1.8)),
-                    TimerMode::Once,
-                ),
-                update_freq_min: 0.25,
-                update_freq_max: 1.8,
-            },
-        ));
     }
 }
 
