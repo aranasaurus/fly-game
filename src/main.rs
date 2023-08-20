@@ -18,7 +18,7 @@ struct Speed {
 }
 
 #[derive(Component)]
-struct PlayerControlled {
+struct FlyPlayer {
     bounce_timer: Timer,
 }
 
@@ -30,11 +30,15 @@ struct AIControlled {
 }
 
 #[derive(Resource)]
-struct Spawner(Timer);
+struct Spawner {
+    timer: Timer,
+}
 
 impl Spawner {
     fn new() -> Self {
-        Spawner(Timer::from_seconds(3.0, TimerMode::Repeating))
+        Self {
+            timer: Timer::from_seconds(3.0, TimerMode::Repeating),
+        }
     }
 }
 
@@ -74,10 +78,7 @@ fn main() {
         .insert_resource(ClearColor(Color::ALICE_BLUE))
         .init_resource::<Spawner>()
         .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            (keyboard_movement, ai_movement, apply_moves).chain(),
-        )
+        .add_systems(Update, (keyboard_input, ai_input, apply_moves).chain())
         .add_systems(Update, spawn_flies)
         .run();
 }
@@ -106,7 +107,7 @@ fn setup(
         },
         Velocity { x: 0.0, y: 0.0 },
         Speed { x: 666.0, y: 600.0 },
-        PlayerControlled {
+        FlyPlayer {
             bounce_timer: Timer::from_seconds(0.1, TimerMode::Once),
         },
     ));
@@ -124,13 +125,13 @@ fn spawn_flies(
     let mut rng = rand::thread_rng();
     let screen = Screen::from(window.single());
 
-    spawner.0.tick(time.delta());
+    spawner.timer.tick(time.delta());
 
     if ai_query.iter().count() >= MAX_FLIES {
         return;
     }
 
-    if spawner.0.just_finished() {
+    if spawner.timer.just_finished() {
         for _ in 0..3 {
             let mut x: f32 = rng.gen_range(-1500.0..1500.0);
             let mut y: f32 = rng.gen_range(-1500.0..1500.0);
@@ -147,16 +148,13 @@ fn spawn_flies(
                     transform: Transform::from_translation(Vec3::from([x, y, 0.])),
                     ..default()
                 },
-                Velocity { x: 330.0, y: 330.0 },
+                Velocity { x: 0.0, y: 0.0 },
                 Speed {
                     x: rng.gen_range(480.0..700.0),
                     y: rng.gen_range(420.0..690.0),
                 },
                 AIControlled {
-                    update_timer: Timer::new(
-                        Duration::from_secs_f32(rng.gen_range(0.25..1.8)),
-                        TimerMode::Once,
-                    ),
+                    update_timer: Timer::from_seconds(rng.gen_range(0.25..1.8), TimerMode::Once),
                     update_freq_min: 0.25,
                     update_freq_max: 1.8,
                 },
@@ -165,7 +163,7 @@ fn spawn_flies(
     }
 }
 
-fn ai_movement(
+fn ai_input(
     time: Res<Time>,
     window: Query<&Window>,
     mut query: Query<(&mut Velocity, &mut AIControlled, &Transform, &Speed)>,
@@ -203,10 +201,10 @@ fn ai_movement(
     }
 }
 
-fn keyboard_movement(
+fn keyboard_input(
     input: Res<Input<KeyCode>>,
     time: Res<Time>,
-    mut query: Query<(&mut Velocity, &Speed, &mut PlayerControlled)>,
+    mut query: Query<(&mut Velocity, &Speed, &mut FlyPlayer)>,
 ) {
     for (mut velocity, speed, mut player) in query.iter_mut() {
         for key in input.get_just_pressed() {
@@ -257,7 +255,7 @@ fn apply_moves(
     time: Res<Time>,
     window: Query<&Window>,
     mut query: Query<(&mut Transform, &mut Velocity, Entity)>,
-    mut players: Query<&mut PlayerControlled>,
+    mut players: Query<&mut FlyPlayer>,
 ) {
     let win = window.single();
     let screen = Screen::from(win);
